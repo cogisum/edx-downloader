@@ -55,7 +55,7 @@ OPENEDX_SITES = {
         'courseware-selector': ('nav', {'aria-label': 'Course Navigation'}),
     },
     'stanford': {
-        'url': 'https://class.stanford.edu',
+        'url': 'https://lagunita.stanford.edu',
         'courseware-selector': ('nav', {'aria-label': 'Course Navigation'}),
     },
     'usyd-sit': {
@@ -210,14 +210,6 @@ def parse_args():
                                      description='Get videos from the OpenEdX platform',
                                      epilog='For further use information,'
                                      'see the file README.md',)
-    # positional
-    parser.add_argument('course_id',
-                        nargs='*',
-                        action='store',
-                        default=None,
-                        help='target course id '
-                        '(e.g., https://courses.edx.org/courses/BerkeleyX/CS191x/2013_Spring/info/)'
-                        )
 
     # optional
     parser.add_argument('-u',
@@ -234,32 +226,30 @@ def parse_args():
                         action='store',
                         default=None,
                         help='format of videos to download')
-    parser.add_argument('-s',
-                        '--with-subtitles',
+    parser.add_argument('--write-sub',
                         dest='subtitles',
                         action='store_true',
                         default=False,
                         help='download subtitles with the videos')
     parser.add_argument('-o',
-                        '--output-dir',
+                        '--output',
                         action='store',
-                        dest='output_dir',
-                        help='store the files to the specified directory',
-                        default='Downloaded')
-    parser.add_argument('-x',
-                        '--platform',
+                        dest='output',
+                        help='output filename template.',
+                        default='%(title)s.%(ext)s')
+    parser.add_argument('--platform',
                         action='store',
                         dest='platform',
                         help='OpenEdX platform, currently either "edx", "stanford" or "usyd-sit"',
                         default='edx')
 
-    args = parser.parse_args()
-    return args
+    return parser.parse_known_args()
 
 
 def main():
-    args = parse_args()
-
+    (args, other_args) = parse_args()
+    print(args)
+    print(other_args)
     # if no args means we are calling the interactive version
     is_interactive = len(sys.argv) == 1
     if is_interactive:
@@ -396,24 +386,26 @@ def main():
         print('Choose a valid format or a set of valid format codes e.g. 22/17/...')
         args.format = input('Choose Format code: ')
 
-    print("[info] Output directory: " + args.output_dir)
+    target_dir = os.path.dirname(args.output) or os.path.join('Downloaded', directory_name(selected_course[0]))
+    print("[info] Target directory: " + target_dir)
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
 
     # Download Videos
     c = 0
     for v, s in zip(video_urls, sub_urls):
         c += 1
-        target_dir = os.path.join(args.output_dir,
-                                  directory_name(selected_course[0]))
         filename_prefix = str(c).zfill(2)
-        cmd = ["youtube-dl",
-               "-o", os.path.join(target_dir, filename_prefix + "-%(title)s.%(ext)s")]
+        cmd = ["youtube-dl"]
         if args.format:
-            cmd.append("-f")
-            # defaults to mp4 in case the requested format isn't available
-            cmd.append(args.format + '/mp4')
+            cmd.extend(['-f', args.format + '/mp4'])
         if args.subtitles:
             cmd.append('--write-sub')
+        cmd.extend(other_args)
+        outformat = os.path.join(target_dir, filename_prefix+'-'+os.path.basename(args.output))
+        cmd.extend(['-o', outformat])
         cmd.append(str(v))
+        print('outformat: %s' % outformat)
 
         popen_youtube = Popen(cmd, stdout=PIPE, stderr=PIPE)
 
@@ -428,8 +420,11 @@ def main():
                 break
 
         if args.subtitles:
+            print('######## v is %s' % v)
             filename = get_filename(target_dir, filename_prefix)
             subs_filename = os.path.join(target_dir, filename + '.srt')
+            print('######## subs_filename is %s' % subs_filename)
+            # if cannot download subtitle from youtube using youtube-dl, then download from edx platform
             if not os.path.exists(subs_filename):
                 subs_string = edx_get_subtitle(s, headers)
                 if subs_string:
@@ -444,10 +439,13 @@ def get_filename(target_dir, filename_prefix):
     # things clearer , a good refactoring would be to get
     # the info from the video_url or the current output, to avoid the
     # iteration from the current dir
+    print('######## target_dir is %s' % target_dir)
     filenames = os.listdir(target_dir)
     for name in filenames:  # Find the filename of the downloaded video
         if name.startswith(filename_prefix):
+            print('######## name is %s' % name)
             (basename, ext) = os.path.splitext(name)
+            print('######## basename is %s' % basename)
             return basename
 
 if __name__ == '__main__':
